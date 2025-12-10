@@ -48,7 +48,7 @@ class TransactionRequest(BaseModel):
     product_type: ProductType
     denom: int
     amount: int
-    timestamp: Optional[datetime] = Field(default_factory=datetime.now)
+    timestamp: Optional[datetime] = Field(default_factory=datetime.now(timezone.utc))
 
 class TransactionRecord(BaseModel):
     transaction_id: str
@@ -79,9 +79,9 @@ class FraudRule(BaseModel):
 class FDSResult(BaseModel):
     allowed: bool
     action: ActionType
-    triggered_rules: List[Dict[str, Any]] = []
+    triggered_rules: List[Dict[str, Any]] = Field(default_factory=list)
     processing_time_ms: float
-    metadata: Dict[str, Any] = {}
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 # ================== IN-MEMORY STORAGE ==================
 
@@ -93,7 +93,8 @@ class SlidingWindowStore:
     
     def __init__(self):
         self.transactions: Dict[str, deque] = {}  # customer_id -> deque of transactions
-        self.lock = Lock()
+        # self.lock = Lock()
+        self.lock = asyncio.Lock()
         self.max_history_days = 7  # Keep max 7 days (1 week) of history
         self.last_cleanup = datetime.now(timezone.utc)
     
@@ -107,31 +108,6 @@ class SlidingWindowStore:
             return timedelta(days=30)
         return timedelta(days=1)
     
-    def _clean_old_transactions(self, customer_id: str):
-        """Remove transactions older than max_history_days"""
-        if customer_id not in self.transactions:
-            return
-        
-        cutoff = datetime.now(timezone.utc) - timedelta(days=self.max_history_days)
-        
-        # Remove old transactions from the front
-        removed_count = 0
-        while self.transactions[customer_id]:
-            txn = self.transactions[customer_id][0]
-            # Normalize both timestamps to UTC
-            txn_time = txn.timestamp if txn.timestamp.tzinfo else txn.timestamp.replace(tzinfo=timezone.utc)
-            
-            if txn_time < cutoff:
-                self.transactions[customer_id].popleft()
-                removed_count += 1
-            else:
-                break
-        
-        # Remove empty deques
-        if not self.transactions[customer_id]:
-            del self.transactions[customer_id]
-        
-        return removed_count
     
     def add_transaction(self, transaction: TransactionRecord):
         """Add transaction to store"""
