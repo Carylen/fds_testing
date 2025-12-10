@@ -93,6 +93,12 @@ class RedisClient:
         val = await self.redis.get(key)
         return int(val) if val else 0
     
+    async def list_fds_keys(self, key: str):
+        keys = []
+        async for key in self.redis.scan_iter(match=f"{key}:*", count=100):
+            keys.append(key)
+        return keys
+    
     async def increment_counter(self, key: str, ttl: int = 86400):
         pipe = self.redis.pipeline()
         pipe.incr(key)
@@ -470,6 +476,15 @@ async def check_transaction(
 async def get_rules():
     """Get all fraud rules"""
     return rule_engine.rules
+
+@app.get("/fds/keys")
+async def list_fds_keys(key: str):
+    keys = await redis_client.list_fds_keys(key=key)
+    return {
+        "pattern": f"{key}:*",
+        "keys": keys,
+        "count": len(keys),
+    }
 
 @app.post("/fds/rules", response_model=FraudRule)
 async def create_rule(rule: FraudRule):
