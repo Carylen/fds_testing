@@ -1,6 +1,6 @@
 # app/api/routes.py
-from fastapi import APIRouter, BackgroundTasks, HTTPException
-
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.fds.schemas import (
     TransactionRequest,
     FDSResult,
@@ -12,6 +12,7 @@ from app.fds.rules import rule_engine
 from app.fds.storage import storage
 from app.fds.notifications import notification_service
 from app.fds.services import log_fraud_event_to_db
+from app.db.session import get_ppob_session
 
 router = APIRouter(prefix="/fds", tags=["fds"])
 
@@ -20,12 +21,13 @@ router = APIRouter(prefix="/fds", tags=["fds"])
 async def check_transaction(
     transaction: TransactionRequest,
     background_tasks: BackgroundTasks,
+    ppob_session: AsyncSession = Depends(get_ppob_session)
 ):
     """
     Check transaction against fraud rules using sliding window.
     Target: < 200ms processing time.
     """
-    result = await rule_engine.check_transaction(transaction)
+    result = await rule_engine.check_transaction(transaction, ppob_session)
     
     if result.action != result.action.ALLOW:
         background_tasks.add_task(

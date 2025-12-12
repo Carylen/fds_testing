@@ -7,8 +7,15 @@ load_dotenv()
 # URL DB async SQLAlchemy (sesuaikan sendiri)
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    # "postgresql+asyncpg://user:password@localhost:5432/fds_db",
+    "mysql+aiomysql://root:@localhost:3306/fds",
+)
+
+DATABASE_PPOB_URL = os.getenv(
+    "DATABASE_PPOB_URL",
+    "mysql+aiomysql://user:password@log-host:3306/ppobprod",
 )
 
 # Webhook Google Chat
 GCHAT_SPACE = os.getenv("GCHAT_SPACE")
+# MAX_HISTORY_DAYS = int(os.getenv("FDS_MAX_HISTORY_DAYS", "30"))
+MAX_HISTORY_DAYS = 30

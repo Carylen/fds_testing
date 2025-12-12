@@ -6,7 +6,8 @@ from fastapi import FastAPI
 
 from app.api.routes import router as fds_router
 from app.db.session import init_db
-from app.fds.storage import storage
+# from app.fds.storage import storage
+from app.fds.rules import rule_engine
 
 
 @asynccontextmanager
@@ -16,15 +17,17 @@ async def lifespan(app: FastAPI):
     await init_db()
     print("✅ DB initialized (fraud_events table ready)")
     
+    await rule_engine.init_from_db()
+    print("✅ RuleEngine loaded from DB")
     # Start periodic cleanup (1 jam)
-    cleanup_task = asyncio.create_task(storage.cleanup_loop(interval_seconds=3600))
+    # cleanup_task = asyncio.create_task(storage.cleanup_loop(interval_seconds=3600))
     print("✅ FDS System Started - Cleanup job running every 1 hour")
     try:
         yield
     finally:
-        cleanup_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await cleanup_task
+        # cleanup_task.cancel()
+        # with suppress(asyncio.CancelledError):
+        #     await cleanup_task
         print("✅ FDS System Stopped")
 
 
