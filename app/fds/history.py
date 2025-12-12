@@ -56,6 +56,7 @@ async def load_customer_history(customer_id: str, partner_id: str, session: Asyn
             ppobprod.tb_r_logpaydata
         WHERE
             customerid = :customer_id
+            AND partnerid =:partner_id
             AND transactiondate >= :start
 
         UNION ALL
@@ -73,6 +74,7 @@ async def load_customer_history(customer_id: str, partner_id: str, session: Asyn
             ppobprod.tb_r_logsuspectdata
         WHERE
             customerid = :customer_id
+            AND partnerid =:partner_id
             AND transactiondate >= :start
     """)
 
