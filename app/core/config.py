@@ -4,7 +4,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# URL DB async SQLAlchemy (sesuaikan sendiri)
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "mysql+aiomysql://root:@localhost:3306/fds",

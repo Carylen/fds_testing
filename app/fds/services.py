@@ -4,7 +4,9 @@ from __future__ import annotations
 from app.db.session import AsyncSessionLocal
 from app.db.models import FraudEvent
 from app.fds.schemas import TransactionRequest, FDSResult
+import logging
 
+logger = logging.getLogger(__name__)
 
 async def log_fraud_event_to_db(
     transaction: TransactionRequest,
@@ -27,4 +29,4 @@ async def log_fraud_event_to_db(
             await session.commit()
         except Exception as e:
             await session.rollback()
-            print(f"Failed to insert FraudEvent: {e}")
+            logger.info(f"Failed to insert FraudEvent: {e}")

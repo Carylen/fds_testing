@@ -7,7 +7,7 @@ from typing import Dict, List
 import asyncio
 from datetime import timedelta
 
-from app.core.time_utils import utc_now, ensure_utc
+from app.core.time_utils import jkt_utc_now, ensure_jkt_utc
 from app.fds.schemas import (
     TransactionRecord,
     ProductType,
@@ -37,13 +37,13 @@ class SlidingWindowStore:
     
     async def _clean_all_old_transactions(self) -> int:
         """Hapus transaksi yang lebih tua daripada max_history_days (untuk semua customer)."""
-        cutoff = utc_now() - timedelta(days=self.max_history_days)
+        cutoff = jkt_utc_now() - timedelta(days=self.max_history_days)
         total_removed = 0
         
         async with self.lock:
             for customer_id in list(self.transactions.keys()):
                 dq = self.transactions[customer_id]
-                while dq and ensure_utc(dq[0].timestamp) < cutoff:
+                while dq and ensure_jkt_utc(dq[0].timestamp) < cutoff:
                     dq.popleft()
                     total_removed += 1
                 if not dq:
@@ -60,7 +60,7 @@ class SlidingWindowStore:
     
     async def add_transaction(self, transaction: TransactionRecord) -> None:
         """Tambah transaksi ke store (timestamp di-normalisasi ke UTC)."""
-        transaction.timestamp = ensure_utc(transaction.timestamp)
+        transaction.timestamp = ensure_jkt_utc(transaction.timestamp)
         async with self.lock:
             dq = self.transactions.setdefault(transaction.customer_id, deque())
             dq.append(transaction)
@@ -73,7 +73,7 @@ class SlidingWindowStore:
         denom: int | None = None,
     ) -> List[TransactionRecord]:
         """Ambil transaksi dalam window tertentu & filter optional."""
-        cutoff_time = utc_now() - self._get_window_duration(window)
+        cutoff_time = jkt_utc_now() - self._get_window_duration(window)
         
         async with self.lock:
             if customer_id not in self.transactions:
@@ -81,7 +81,7 @@ class SlidingWindowStore:
             
             filtered: List[TransactionRecord] = []
             for txn in reversed(self.transactions[customer_id]):
-                txn_time = ensure_utc(txn.timestamp)
+                txn_time = ensure_jkt_utc(txn.timestamp)
                 if txn_time < cutoff_time:
                     break
                 if product_type and txn.product_type != product_type:
@@ -115,7 +115,7 @@ class SlidingWindowStore:
         lookback_days: int = 30,
     ) -> float:
         """Hitung rata-rata amount dalam lookback_days."""
-        cutoff_time = utc_now() - timedelta(days=lookback_days)
+        cutoff_time = jkt_utc_now() - timedelta(days=lookback_days)
         
         async with self.lock:
             if customer_id not in self.transactions:
@@ -125,7 +125,7 @@ class SlidingWindowStore:
                 txn.amount
                 for txn in self.transactions[customer_id]
                 if (
-                    ensure_utc(txn.timestamp) >= cutoff_time
+                    ensure_jkt_utc(txn.timestamp) >= cutoff_time
                     and txn.product_type == product_type
                     and txn.denom == denom
                 )

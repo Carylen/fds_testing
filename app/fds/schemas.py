@@ -5,7 +5,7 @@ from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import datetime
 
-from app.core.time_utils import utc_now
+from app.core.time_utils import jkt_utc_now
 
 
 class ProductType(str, Enum):
@@ -38,7 +38,7 @@ class TransactionRequest(BaseModel):
     product_type: ProductType
     denom: int
     amount: int
-    timestamp: Optional[datetime] = Field(default_factory=utc_now)
+    timestamp: Optional[datetime] = Field(default_factory=jkt_utc_now)
 
 
 class TransactionRecord(BaseModel):

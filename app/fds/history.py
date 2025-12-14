@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import AsyncSessionLocal, PPOBAsyncSessionLocal
 from app.core.config import MAX_HISTORY_DAYS
-from app.core.time_utils import ensure_utc, utc_now
+from app.core.time_utils import ensure_jkt_utc, jkt_utc_now
 
 SourceType = Literal["pay", "suspect"]
 
@@ -39,7 +39,7 @@ async def load_customer_history(customer_id: str, partner_id: str, session: Asyn
 
     Sesuaikan nama schema/tabel/kolom dengan DB kamu.
     """
-    now = utc_now()
+    now = jkt_utc_now()
     start = now - timedelta(days=MAX_HISTORY_DAYS)
 
     sql = text("""
@@ -97,7 +97,7 @@ async def load_customer_history(customer_id: str, partner_id: str, session: Asyn
 
     tx_rows: List[TxRow] = []
     for r in rows:
-        created = ensure_utc(r.created_on)
+        created = ensure_jkt_utc(r.created_on)
         tx_rows.append(
             TxRow(
                 partner_id=r.partner_id,

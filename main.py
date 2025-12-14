@@ -16,10 +16,12 @@ import asyncio
 import httpx
 import time
 import os
+import logging
 from dotenv import load_dotenv
 from threading import Lock
 
 load_dotenv()
+logger = logging.getLogger(__name__)
 # ================== MODELS ==================
 
 class ProductType(str, Enum):
@@ -133,7 +135,7 @@ class SlidingWindowStore:
         for customer_id in list(self.transactions.keys()):
             removed = self._clean_old_transactions(customer_id)
             total_removed += removed
-        print(f"🧹 Cleaned {total_removed} old transactions")
+        logger.info(f"🧹 Cleaned {total_removed} old transactions")
         return total_removed
     
     def get_transactions_in_window(
@@ -566,7 +568,7 @@ class NotificationService:
                     timeout=5.0
                 )
         except Exception as e:
-            print(f"Failed to send Google Chat notification: {e}")
+            logger.info(f"Failed to send Google Chat notification: {e}")
 
 notification_service = NotificationService()
 
@@ -582,15 +584,15 @@ app = FastAPI(
 async def startup_event():
     """Startup event - start background cleanup job"""
     asyncio.create_task(periodic_cleanup())
-    print("✅ FDS System Started - Cleanup job running every 1 week")
+    logger.info("✅ FDS System Started - Cleanup job running every 1 week")
 
 async def periodic_cleanup():
     """Periodic cleanup every 1 week"""
     while True:
         await asyncio.sleep(604800)  # 7 days = 604800 seconds
-        print("🧹 Starting weekly cleanup...")
+        logger.info("🧹 Starting weekly cleanup...")
         removed = storage._clean_all_old_transactions()
-        print(f"✅ Weekly cleanup completed: {removed} transactions removed")
+        logger.info(f"✅ Weekly cleanup completed: {removed} transactions removed")
 
 # ================== ENDPOINTS ==================
 

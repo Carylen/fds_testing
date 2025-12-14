@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import time
+import logging
+import pytz
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 
 from sqlalchemy import select, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.time_utils import utc_now, ensure_utc
+from app.core.time_utils import jkt_utc_now, ensure_jkt_utc
 from app.db.session import AsyncSessionLocal
 from app.db.models import FDSRuleDB
 from app.fds.schemas import (
@@ -23,6 +25,10 @@ from app.fds.schemas import (
 )
 from app.fds.history import CustomerHistory, load_customer_history
 
+logger = logging.getLogger(__name__)
+
+JAKARTA_TZ = pytz.timezone("Asia/Jakarta")
+UTC = pytz.UTC
 
 def db_to_pydantic(db_rule: FDSRuleDB) -> FraudRule:
     return FraudRule(
@@ -48,15 +54,6 @@ def pydantic_to_db(rule: FraudRule) -> FDSRuleDB:
     )
 
 
-# def _window_start(now: datetime, window: TimeWindow):
-#     if window == TimeWindow.MINUTE:
-#         return now - timedelta(minutes=1)
-#     elif window == TimeWindow.DAY:
-#         return now - timedelta(days=1)
-#     elif window == TimeWindow.MONTH:
-#         return now - timedelta(days=30)
-#     return now - timedelta(days=1)
-
 def get_window_bounds(now: datetime, window: TimeWindow):
     """
     Mengembalikan (start, end) untuk window:
@@ -64,29 +61,60 @@ def get_window_bounds(now: datetime, window: TimeWindow):
     - 1d  -> hari kalender yang sama (00:00 s/d besok 00:00)
     - 1M  -> bulan kalender yang sama (tgl 1 s/d awal bulan berikutnya)
     """
-    # pastikan 'now' sudah aware (UTC), di kode kamu sekarang pakai utc_now(), jadi aman
-    if window == TimeWindow.MINUTE:
-        start = now - timedelta(minutes=1)
-        end = now
-    elif window == TimeWindow.DAY:
-        # awal hari (UTC) hari ini
-        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        end = start + timedelta(days=1)
-    elif window == TimeWindow.MONTH:
-        # awal bulan ini
-        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        # awal bulan depan
-        if start.month == 12:
-            end = start.replace(year=start.year + 1, month=1)
-        else:
-            end = start.replace(month=start.month + 1)
+    # now = ensure_jkt_utc(now)
+    # if window == TimeWindow.MINUTE:
+    #     start = now - timedelta(minutes=1)
+    #     end = now
+    # elif window == TimeWindow.DAY:
+    #     # awal hari (UTC) hari ini
+    #     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    #     end = start + timedelta(days=1)
+    # elif window == TimeWindow.MONTH:
+    #     # awal bulan ini
+    #     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    #     # awal bulan depan
+    #     if start.month == 12:
+    #         end = start.replace(year=start.year + 1, month=1)
+    #     else:
+    #         end = start.replace(month=start.month + 1)
+    # else:
+    #     # default fallback: 1 hari ke belakang
+    #     start = now - timedelta(days=1)
+    #     end = now
+
+    # return start, end
+
+    if now.tzinfo is None:
+        now_utc = UTC.localize(now)
     else:
-        # default fallback: 1 hari ke belakang
-        start = now - timedelta(days=1)
-        end = now
+        now_utc = now.astimezone(UTC)
 
-    return start, end
+    if window == TimeWindow.MINUTE:
+        start_utc = now_utc - timedelta(minutes=1)
+        end_utc = now_utc
+        return start_utc, end_utc
 
+    # convert ke waktu lokal Jakarta
+    now_local = now_utc.astimezone(JAKARTA_TZ)
+
+    if window == TimeWindow.DAY:
+        start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_local = start_local + timedelta(days=1)
+    elif window == TimeWindow.MONTH:
+        start_local = now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if start_local.month == 12:
+            end_local = start_local.replace(year=start_local.year + 1, month=1)
+        else:
+            end_local = start_local.replace(month=start_local.month + 1)
+    else:
+        # fallback: 1 hari terakhir
+        start_local = now_local - timedelta(days=1)
+        end_local = now_local
+
+    # convert balik ke UTC untuk dipakai banding created_on (yang sudah UTC)
+    start_utc = start_local.astimezone(UTC)
+    end_utc = end_local.astimezone(UTC)
+    return start_utc, end_utc
 class RuleEngine:
     def __init__(self) -> None:
         self.rules: List[FraudRule] = []
@@ -224,7 +252,7 @@ class RuleEngine:
             rows: list[FDSRuleDB] = res.scalars().all()
 
         if not rows:
-            print("ℹ️ fds_rules empty, seeding default rules to DB")
+            logger.info("ℹ️ fds_rules empty, seeding default rules to DB")
             default_rules = self._default_rules()
             async with self.rules_lock:
                 self.rules = default_rules
@@ -238,8 +266,8 @@ class RuleEngine:
             async with self.rules_lock:
                 self.rules = [db_to_pydantic(r) for r in rows]
                 self.rules.sort(key=lambda x: x.priority)
-            print(f"ℹ️ Loaded {len(self.rules)} rules from DB")
-            print(f"ℹ️ Loaded Rules : {self.rules}")
+            logger.info(f"ℹ️ Loaded {len(self.rules)} rules from DB")
+            logger.info(f"ℹ️ Loaded Rules : {self.rules}")
 
     async def add_rule(self, rule: FraudRule) -> None:
         async with self.rules_lock:
@@ -324,13 +352,13 @@ class RuleEngine:
     ) -> Optional[Dict[str, Any]]:
         if rule.conditions.product_type and rule.conditions.product_type != tx_req.product_type:
             return None
-        print(f"NOW : {now}")
+        logger.info(f"NOW : {now}")
         # win_start = _window_start(now, rule.conditions.time_window)
         win_start, win_end = get_window_bounds(now, rule.conditions.time_window)
-        print(f"WIN START: {win_start}")
-        print(f"WIN END: {win_end}")
+        logger.info(f"WIN START: {win_start}")
+        logger.info(f"WIN END: {win_end}")
         max_count = rule.conditions.max_count or 0
-        print(f"MAX COUNTS : {max_count}")
+        logger.info(f"MAX COUNTS : {max_count}")
 
         count = 0
         for row in history.rows:
@@ -440,8 +468,8 @@ class RuleEngine:
         final_action = ActionType.ALLOW
 
         # pakai waktu server UTC
-        # tx_req.timestamp = utc_now()
-        tx_req.timestamp = ensure_utc(tx_req.timestamp if tx_req.timestamp else utc_now())
+        # tx_req.timestamp = jkt_utc_now()
+        tx_req.timestamp = ensure_jkt_utc(tx_req.timestamp if tx_req.timestamp else jkt_utc_now())
 
         # 1 query ke DB untuk load history 30 hari
         history = await load_customer_history(
@@ -450,9 +478,9 @@ class RuleEngine:
             session=db_session
         )
         t1 = time.perf_counter()
-        # print(f"🔎DATA CUST : {history}")
+        # logger.info(f"🔎DATA CUST : {history}")
         history_count = len(history.rows)
-        print(f"🔎DATA CUST : {history_count}")
+        logger.info(f"🔎DATA CUST : {history_count}")
         now = tx_req.timestamp
 
         enabled_rules = await self._get_enabled_rules()
@@ -469,7 +497,7 @@ class RuleEngine:
                 violation = self._check_amount_threshold_rule(rule, tx_req, history, now)
 
             if violation:
-                print(f"⚠️ VIOLATION : {violation}")
+                logger.info(f"⚠️ VIOLATION : {violation}")
                 triggered_rules.append(violation)
                 if violation["action"] == ActionType.BLOCK:
                     final_action = ActionType.BLOCK
@@ -482,7 +510,7 @@ class RuleEngine:
         db_ms = (t1 - t0) * 1000
         rule_ms = (t2 - t1) * 1000
         total_ms = (t2 - t0) * 1000
-        print(f"[PERF] db={db_ms:.1f}ms rules={rule_ms:.1f}ms total={total_ms:.1f}ms")
+        logger.info(f"[PERF] db={db_ms:.1f}ms rules={rule_ms:.1f}ms total={total_ms:.1f}ms")
         
         return FDSResult(
             allowed=(final_action != ActionType.BLOCK),
